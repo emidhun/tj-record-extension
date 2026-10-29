@@ -15,7 +15,7 @@ const recordable = (url) => /^(https?|file):/.test(url || '');
 const getRec = async () => (await chrome.storage.session.get('rec')).rec || null;
 const setRec = (rec) => (rec ? chrome.storage.session.set({ rec }) : chrome.storage.session.remove('rec'));
 
-/* ---------- page metadata for the jam row ---------- */
+/* ---------- page metadata for the record row ---------- */
 async function pageMeta(tab) {
   let os = '';
   let browser = '';

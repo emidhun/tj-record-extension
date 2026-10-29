@@ -1,7 +1,7 @@
 # TJ Record — Chrome extension
 
 Records a browser tab together with its console, network requests and user actions, then files it
-as a jam in the **TJ Record** ToolJet app.
+as a record in the **TJ Record** ToolJet app.
 
 ## Install (unpacked)
 
@@ -18,7 +18,7 @@ AWS keys: the upload runs inside TJ Record as you.
   bottom-left corner of the page shows the time and has **Stop** and discard (✕).
 - **Screenshot**: captures the visible part of the tab.
 - When you stop, TJ Record opens its **Upload** page with a preview and a short form (title,
-  description, assignee, priority, environment, labels). **Save jam** uploads and opens the jam.
+  description, assignee, priority, environment, labels). **Save record** uploads and opens the record.
 - Recordings that were not uploaded stay in the popup under **Waiting to upload**.
 
 ## How it works
