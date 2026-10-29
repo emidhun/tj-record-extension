@@ -37,7 +37,40 @@
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.4-2h5l1.4 2h1.6A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.5"/></svg>
       <span>Screenshot</span>
     </button>
+    <p class="hint center">Drag to select an area, or keep the whole view</p>
+    <div class="card replay">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.6-6.4"/><path d="M3 4v4.5h4.5"/><path d="M12 7.5V12l3 2"/></svg>
+      <div class="grow">
+        <b>Instant replay</b>
+        <div class="hint">Keeps the last 3 min of this tab. Save it after a bug happens.</div>
+      </div>
+      <button id="replayOn" class="btn small">Turn on</button>
+    </div>
     <p id="blocked" class="note" hidden>This page can't be recorded. Open a website and try again.</p>
+  </main>
+
+  <main id="replay" hidden>
+    <div class="live">
+      <span class="dot"></span>
+      <div class="grow">
+        <div id="rpTitle" class="ttl"></div>
+        <div id="rpTime" class="hint"></div>
+      </div>
+    </div>
+    <div class="lengths" role="group" aria-label="Save the last">
+      <button class="btn primary" data-ms="60000">Last 1 min</button>
+      <button class="btn primary" data-ms="120000">Last 2 min</button>
+      <button class="btn primary" data-ms="180000">Last 3 min</button>
+    </div>
+    <p class="hint center">Saves video, console, network and clicks. Replay keeps running.</p>
+    <button id="rpShot" class="btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.4-2h5l1.4 2h1.6A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.5"/></svg>
+      <span>Screenshot</span>
+    </button>
+    <div class="row center">
+      <button id="rpGoto" class="link" hidden>Go to the tab</button>
+      <button id="rpOff" class="link">Turn off instant replay</button>
+    </div>
   </main>
 
   <main id="recording" hidden>

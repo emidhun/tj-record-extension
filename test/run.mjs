@@ -178,12 +178,12 @@ try {
   await up.screenshot({ path: path.join(OUT, 'upload-page.png') });
   check('video matches the tab size', /^\d+x\d+$/.test(summary.videoDims), summary.videoDims);
 
-  // Screenshot mode
+  // Screenshot without the area picker (what pages we can't script get)
   await page.bringToFront();
   const shotTab = ctx.waitForEvent('page', { timeout: 20000 });
   const shot = await sw.evaluate(async () => {
     const [tab] = await chrome.tabs.query({ url: 'http://127.0.0.1/app*' });
-    return globalThis.tjr.takeScreenshot(tab);
+    return globalThis.tjr.takeScreenshot(tab, { crop: false });
   });
   check('screenshot draft', shot && shot.ok, shot);
   const st = await shotTab;
@@ -239,6 +239,170 @@ try {
   await sleep(1000);
   check('D: discard leaves no draft and opens nothing', d.ok && (await drafts()) === before && ctx.pages().length === pagesBefore, { d, pages: ctx.pages().length, pagesBefore });
   check('D: control removed', await p5.evaluate(() => !document.querySelector('tjr-record-pill')));
+
+  const readUpload = async (tabPromise) => {
+    const t = await tabPromise;
+    await t.waitForURL('**/upload?draft=*', { timeout: 20000 });
+    await t.waitForFunction(() => document.getElementById('out').textContent !== 'waiting', null, { timeout: 30000 });
+    return { t, s: JSON.parse(await t.textContent('#out')) };
+  };
+  const near = (a, b, tol) => Math.abs(a - b) <= tol;
+
+  // F: screenshot area picker — drag, Esc, Enter
+  const p7 = await ctx.newPage();
+  await p7.goto(`http://127.0.0.1:${A}/app?crop`);
+  await sleep(400);
+  const vp = await p7.evaluate(() => ({ w: innerWidth, h: innerHeight, dpr: devicePixelRatio }));
+  const startShot = () => sw.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: 'http://127.0.0.1/app?crop' });
+    return globalThis.tjr.takeScreenshot(tab);
+  });
+  const overlay = () => p7.evaluate(() => !!document.querySelector('tjr-crop'));
+  const f1 = await startShot();
+  await sleep(300);
+  check('F: area picker opens on the page', f1 && f1.ok && f1.cropping && (await overlay()), f1);
+  await p7.screenshot({ path: path.join(OUT, 'crop-picker.png') });
+  const cropTab = ctx.waitForEvent('page', { timeout: 20000 });
+  await p7.mouse.move(100, 120);
+  await p7.mouse.down();
+  await p7.mouse.move(260, 200, { steps: 4 });
+  await p7.mouse.move(420, 280, { steps: 4 });
+  await p7.screenshot({ path: path.join(OUT, 'crop-dragging.png') });
+  await p7.mouse.up();
+  const c1 = await readUpload(cropTab);
+  const [cw, ch] = String(c1.s.thumbDims || '0x0').split('x').map(Number);
+  check('F: screenshot cropped to the dragged area', c1.s.type === 'screenshot' && near(cw, 320 * vp.dpr, 2) && near(ch, 160 * vp.dpr, 2), { dims: c1.s.thumbDims, dpr: vp.dpr });
+  check('F: picker removed after saving', !(await overlay()));
+  await c1.t.close();
+
+  await p7.bringToFront();
+  const draftsBefore = await drafts();
+  const pagesBeforeEsc = ctx.pages().length;
+  await startShot();
+  await sleep(300);
+  await p7.keyboard.press('Escape');
+  await sleep(500);
+  check('F: Esc cancels without a draft', !(await overlay()) && (await drafts()) === draftsBefore && ctx.pages().length === pagesBeforeEsc);
+  check('F: Esc did not reach the page', (await p7.evaluate(() => document.activeElement && document.activeElement.tagName)) !== 'INPUT');
+
+  await p7.bringToFront();
+  await startShot();
+  await sleep(300);
+  const wholeTab = ctx.waitForEvent('page', { timeout: 20000 });
+  await p7.keyboard.press('Enter');
+  const c2 = await readUpload(wholeTab);
+  const [ww, wh] = String(c2.s.thumbDims || '0x0').split('x').map(Number);
+  check('F: Enter keeps the whole view', near(ww, vp.w * vp.dpr, 2) && near(wh, vp.h * vp.dpr, 2), { dims: c2.s.thumbDims, vp });
+  await c2.t.close();
+  await p7.close();
+
+  // E: instant replay
+  const p6 = await ctx.newPage();
+  const p6Errors = [];
+  p6.on('pageerror', (e) => p6Errors.push(e.message));
+  await p6.goto(`http://127.0.0.1:${A}/app?replay`);
+  await p6.evaluate(() => {
+    const el = document.createElement('div');
+    el.id = 'clock';
+    document.body.prepend(el);
+    setInterval(() => { el.textContent = 'tick ' + Date.now(); }, 100);
+  });
+  await sleep(300);
+  const rs = await sw.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: 'http://127.0.0.1/app?replay' });
+    try {
+      const r = await globalThis.tjr.startReplay(tab);
+      return { ok: r.ok, logs: r.rec.logs, mode: r.rec.mode, startedAt: r.rec.startedAt };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+  check('E: instant replay starts', rs.ok && rs.mode === 'replay' && rs.logs === true, rs);
+  if (!rs.ok) throw new Error('cannot continue');
+  await sleep(700);
+  check('E: no floating control during replay', await p6.evaluate(() => !document.querySelector('tjr-record-pill')));
+  const busy = await sw.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: 'http://127.0.0.1/app?replay' });
+    try {
+      await globalThis.tjr.startRecording(tab);
+      return 'started';
+    } catch (e) {
+      return e.message;
+    }
+  });
+  check('E: recording is blocked while replay is on', /Instant replay is on/.test(busy), busy);
+
+  // Early activity, then 7 s of nothing but the ticking clock: a 5 s replay must not include it.
+  await p6.click('#coupon');
+  await p6.keyboard.type('EARLY1', { delay: 30 });
+  await p6.click('#apply');
+  await sleep(7000);
+  await p6.click('#pay');
+  await sleep(2500);
+  const rp1 = ctx.waitForEvent('page', { timeout: 20000 });
+  const r5 = await sw.evaluate(() => globalThis.tjr.saveReplay(5000));
+  check('E: replay saved', r5 && r5.ok, r5);
+  const d5 = await sw.evaluate(async (id) => {
+    const d = await globalThis.tjr.getDraft(id);
+    return d && { type: d.type, replay: d.replay, durationMs: d.durationMs, videoSize: d.video && d.video.size, thumbSize: d.thumb && d.thumb.size, bundle: d.bundle, counts: d.counts };
+  }, r5.draftId);
+  fs.writeFileSync(path.join(OUT, 'replay-bundle.json'), JSON.stringify(d5.bundle, null, 1));
+  log('replay 5 s:', { durationMs: d5.durationMs, videoSize: d5.videoSize, counts: d5.counts });
+  check('E: 5 s replay is 5–8.6 s long (cut at the keyframe before)', d5.type === 'video' && d5.replay === true && d5.durationMs >= 5000 && d5.durationMs <= 8600, d5.durationMs);
+  check('E: activity before the cut is left out', !d5.bundle.network.some((n) => n.url.endsWith('/api/coupon')) && !d5.bundle.actions.some((a) => a.value === 'EARLY1'));
+  check('E: activity inside the cut is kept', d5.bundle.network.some((n) => n.url.includes('/api/orders') && n.status === 500) && d5.bundle.actions.some((a) => a.type === 'click' && a.target === 'button#pay'));
+  check('E: event times start at the cut', [d5.bundle.console, d5.bundle.network, d5.bundle.actions].every((l) => l.every((x, i) => x.t >= 0 && x.t <= d5.durationMs + 500 && (i === 0 || l[i - 1].t <= x.t))));
+  check('E: errors counted', d5.counts.errors >= 2 && d5.counts.failed >= 2, d5.counts);
+  check('E: thumbnail saved', d5.thumbSize > 1000, d5.thumbSize);
+  const u5 = await readUpload(rp1);
+  log('replay 5 s on the upload page:', u5.s);
+  check('E: replay video plays with the right duration', Number.isFinite(u5.s.videoDuration) && near(u5.s.videoDuration * 1000, d5.durationMs, 150), u5.s.videoDuration);
+  check('E: replay video seeks', u5.s.seeked === true && near(u5.s.currentTime, u5.s.seekTarget, 0.6), u5.s);
+  check('E: replay video size', /^\d+x\d+$/.test(u5.s.videoDims) && u5.s.videoDims !== '0x0', u5.s.videoDims);
+  await u5.t.close();
+  check('E: replay keeps running after a save', ((await sw.evaluate(() => globalThis.tjr.getRec())) || {}).mode === 'replay');
+
+  const popupRp = await ctx.newPage();
+  await popupRp.goto(`chrome-extension://${EXT_ID}/popup.html`);
+  await popupRp.setViewportSize({ width: 320, height: 330 });
+  await sleep(600);
+  const rpButtons = await popupRp.evaluate(() => [...document.querySelectorAll('#replay [data-ms]')].map((b) => b.disabled));
+  check('E: popup shows replay with only "Last 1 min" enabled', rpButtons.join() === 'false,true,true', rpButtons);
+  await popupRp.screenshot({ path: path.join(OUT, 'popup-replay.png') });
+  await popupRp.close();
+
+  const rp2 = ctx.waitForEvent('page', { timeout: 20000 });
+  await p6.bringToFront();
+  const r60 = await sw.evaluate(() => globalThis.tjr.saveReplay(60000));
+  const elapsed = Date.now() - rs.startedAt;
+  const d60 = await sw.evaluate(async (id) => {
+    const d = await globalThis.tjr.getDraft(id);
+    return d && { durationMs: d.durationMs, bundle: d.bundle };
+  }, r60.draftId);
+  check('E: "last 1 min" with less buffered saves all of it', r60.ok && near(d60.durationMs, elapsed, 1500), { durationMs: d60.durationMs, elapsed });
+  check('E: …including the early activity', d60.bundle.network.some((n) => n.url.endsWith('/api/coupon')) && d60.bundle.actions.some((a) => a.value === 'EARLY1'));
+  const u60 = await readUpload(rp2);
+  check('E: full replay plays and seeks', near(u60.s.videoDuration * 1000, d60.durationMs, 150) && u60.s.seeked === true, u60.s);
+  await u60.t.close();
+
+  const off = await sw.evaluate(() => globalThis.tjr.stopReplay());
+  check('E: turning replay off clears the state', off.ok && (await sw.evaluate(() => globalThis.tjr.getRec())) === null);
+  const offscreenLeft = await sw.evaluate(async () => (await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] })).length);
+  check('E: offscreen recorder closed', offscreenLeft === 0, offscreenLeft);
+  check('E: page had no errors from replay', p6Errors.filter((m) => !/amount|payment rejected/.test(m)).length === 0, p6Errors);
+
+  // Closing the replayed tab turns replay off and opens nothing.
+  await p6.goto(`http://127.0.0.1:${A}/app?replay2`);
+  await sleep(400);
+  const rs2 = await sw.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: 'http://127.0.0.1/app?replay2' });
+    return (await globalThis.tjr.startReplay(tab)).ok;
+  });
+  await sleep(1500);
+  const pagesBeforeClose = ctx.pages().length;
+  await p6.close();
+  await sleep(1500);
+  check('E: closing the tab turns replay off', rs2 && (await sw.evaluate(() => globalThis.tjr.getRec())) === null && ctx.pages().length === pagesBeforeClose - 1);
 
   // Popup renders
   const popup = await ctx.newPage();

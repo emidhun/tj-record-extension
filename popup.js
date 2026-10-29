@@ -18,6 +18,7 @@ const ago = (ts) => {
 
 let tab = null;
 let rec = null;
+let ticker = 0;
 
 function showError(message) {
   $('error').textContent = message || '';
@@ -33,9 +34,9 @@ async function run(button, label, fn) {
     await fn();
   } catch (e) {
     showError((e && e.message) || String(e));
-    button.innerHTML = original;
-    button.disabled = false;
   }
+  button.innerHTML = original;
+  button.disabled = false;
 }
 
 const ok = (r, fallback) => {
@@ -44,23 +45,54 @@ const ok = (r, fallback) => {
 };
 
 function render() {
-  $('idle').hidden = !!rec;
-  $('recording').hidden = !rec;
-  if (rec) {
+  const mode = rec ? (rec.mode === 'replay' ? 'replay' : 'recording') : 'idle';
+  $('idle').hidden = mode !== 'idle';
+  $('recording').hidden = mode !== 'recording';
+  $('replay').hidden = mode !== 'replay';
+  clearInterval(ticker);
+  if (mode === 'recording') {
     $('recTitle').textContent = rec.meta.title || rec.meta.url;
     const update = () => {
       const elapsed = Date.now() - rec.startedAt;
       $('recTime').textContent = 'Recording · ' + clock(elapsed) + ' of ' + clock(rec.maxMs) + (rec.logs === false ? ' · video only' : '');
     };
     update();
-    setInterval(update, 500);
+    ticker = setInterval(update, 500);
     $('goto').hidden = !!tab && tab.id === rec.tabId;
+    return;
+  }
+  if (mode === 'replay') {
+    renderReplay();
     return;
   }
   const can = !!tab && recordable(tab.url);
   $('record').disabled = !can;
   $('shot').disabled = !can;
+  $('replayOn').disabled = !can;
   $('blocked').hidden = can;
+}
+
+// Each "Last N min" button is enabled once more than the next-shorter length is buffered; with less
+// than N minutes buffered it saves everything so far.
+function renderReplay() {
+  const here = !!tab && tab.id === rec.tabId;
+  $('rpTitle').textContent = (here && tab.title) || rec.meta.title || rec.meta.url;
+  $('rpGoto').hidden = here;
+  $('rpShot').disabled = !tab || !recordable(tab.url);
+  const buttons = [...document.querySelectorAll('#replay [data-ms]')];
+  const update = () => {
+    const buffered = Math.min(Date.now() - rec.startedAt, rec.windowMs);
+    $('rpTime').textContent = 'Instant replay · ' + (buffered >= rec.windowMs ? 'keeping the last ' + clock(rec.windowMs) : clock(buffered) + ' buffered') + (rec.logs === false ? ' · video only' : '');
+    let prev = 0;
+    buttons.forEach((b) => {
+      const ms = Number(b.dataset.ms);
+      if (b.dataset.busy !== '1') b.disabled = buffered <= prev + 2000;
+      b.title = buffered < ms ? 'Saves the ' + clock(buffered) + ' buffered so far' : 'Saves the last ' + ms / 60000 + ' min';
+      prev = ms;
+    });
+  };
+  update();
+  ticker = setInterval(update, 500);
 }
 
 async function renderDrafts() {
@@ -78,7 +110,7 @@ async function renderDrafts() {
     title.textContent = d.meta.title || d.meta.url || 'Recording';
     const meta = document.createElement('div');
     meta.className = 'meta';
-    const bits = [d.type === 'screenshot' ? 'Screenshot' : clock(d.durationMs), mb(d.size), ago(d.createdAt)];
+    const bits = [d.type === 'screenshot' ? 'Screenshot' : (d.replay ? 'Replay ' : '') + clock(d.durationMs), mb(d.size), ago(d.createdAt)];
     meta.textContent = bits.join(' · ');
     if (d.counts && d.counts.errors) {
       const err = document.createElement('span');
@@ -134,10 +166,40 @@ $('record').addEventListener('click', () => run($('record'), 'Starting…', asyn
   window.close();
 }));
 
-$('shot').addEventListener('click', () => run($('shot'), 'Capturing…', async () => {
+const shoot = (button) => run(button, 'Capturing…', async () => {
   ok(await send({ type: 'shot', tabId: tab.id }), 'Could not take a screenshot.');
   window.close();
+});
+$('shot').addEventListener('click', () => shoot($('shot')));
+$('rpShot').addEventListener('click', () => shoot($('rpShot')));
+
+$('replayOn').addEventListener('click', () => run($('replayOn'), 'Starting…', async () => {
+  const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+  rec = ok(await send({ type: 'replay:start', tabId: tab.id, streamId }), 'Could not turn on instant replay.').rec;
+  render();
 }));
+
+document.querySelectorAll('#replay [data-ms]').forEach((b) => {
+  b.addEventListener('click', () => {
+    b.dataset.busy = '1';
+    run(b, 'Saving…', async () => {
+      ok(await send({ type: 'replay:save', ms: Number(b.dataset.ms) }), 'Could not save the replay.');
+      window.close();
+    }).finally(() => { b.dataset.busy = ''; });
+  });
+});
+
+$('rpOff').addEventListener('click', () => run($('rpOff'), 'Turning off…', async () => {
+  ok(await send({ type: 'replay:stop' }), 'Could not turn off instant replay.');
+  rec = null;
+  render();
+}));
+
+$('rpGoto').addEventListener('click', async () => {
+  await chrome.tabs.update(rec.tabId, { active: true });
+  await chrome.windows.update(rec.windowId, { focused: true });
+  window.close();
+});
 
 $('stop').addEventListener('click', () => run($('stop'), 'Saving…', async () => {
   ok(await send({ type: 'rec:stop' }), 'Could not stop the recording.');

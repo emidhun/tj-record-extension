@@ -1,6 +1,6 @@
-// TJ Record service worker: starts/stops recordings, takes screenshots, injects the page logger
-// while recording, and hands finished drafts to the TJ Record Upload page.
-import { DEFAULT_APP_URL, MAX_RECORDING_MS, appRoot, getAppUrl, normalizeAppUrl, pageUrl } from './lib/config.js';
+// TJ Record service worker: starts/stops recordings and instant replay, takes screenshots, injects
+// the page logger while capturing, and hands finished drafts to the TJ Record Upload page.
+import { DEFAULT_APP_URL, MAX_RECORDING_MS, REPLAY_LENGTHS_MS, REPLAY_WINDOW_MS, appRoot, getAppUrl, normalizeAppUrl, pageUrl } from './lib/config.js';
 import { deleteDraft, getDraft, listDrafts, putDraft } from './lib/db.js';
 
 const CHUNK_BYTES = 4 * 1024 * 1024;
@@ -11,9 +11,19 @@ const LOGGER_SCRIPTS = [
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const recordable = (url) => /^(https?|file):/.test(url || '');
 
-/* ---------- recording state (survives service worker restarts) ---------- */
+/* ---------- capture state (survives service worker restarts) ----------
+ * rec.mode is 'record' (a recording up to 3 min) or 'replay' (instant replay keeps the last minutes).
+ * Only one runs at a time: Chrome captures a tab once, and the offscreen page holds one stream. */
 const getRec = async () => (await chrome.storage.session.get('rec')).rec || null;
 const setRec = (rec) => (rec ? chrome.storage.session.set({ rec }) : chrome.storage.session.remove('rec'));
+const busyError = (rec) => new Error(rec.mode === 'replay' ? 'Instant replay is on. Turn it off first.' : 'A recording is running. Stop it first.');
+
+async function refreshBadge() {
+  const rec = await getRec();
+  await chrome.action.setBadgeBackgroundColor({ color: '#3E63DD' });
+  await chrome.action.setBadgeText({ text: rec ? (rec.mode === 'replay' ? 'RPL' : 'REC') : '' });
+  await chrome.action.setTitle({ title: rec && rec.mode === 'replay' ? 'TJ Record: instant replay is on' : 'TJ Record' });
+}
 
 /* ---------- page metadata for the record row ---------- */
 async function pageMeta(tab) {
@@ -157,12 +167,13 @@ async function captureSize(tab) {
 
 /* ---------- actions ---------- */
 async function startRecording(tab, streamId) {
-  if (await getRec()) throw new Error('A recording is already running.');
+  const cur = await getRec();
+  if (cur) throw busyError(cur);
   if (!tab || !recordable(tab.url)) throw new Error('TJ Record can’t record this page. Open a website and try again.');
   const id = streamId || (await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }));
   await ensureOffscreen();
   const meta = await pageMeta(tab);
-  const rec = { tabId: tab.id, windowId: tab.windowId, draftId: crypto.randomUUID(), startedAt: 0, maxMs: MAX_RECORDING_MS, meta };
+  const rec = { mode: 'record', tabId: tab.id, windowId: tab.windowId, draftId: crypto.randomUUID(), startedAt: 0, maxMs: MAX_RECORDING_MS, meta };
   const size = await captureSize(tab);
   const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'start', streamId: id, draftId: rec.draftId, tabId: tab.id, meta, maxMs: rec.maxMs, size });
   if (!res || !res.ok) {
@@ -174,8 +185,7 @@ async function startRecording(tab, streamId) {
   await registerLogger();
   rec.logs = await injectNow(tab.id);
   await setRec(rec);
-  await chrome.action.setBadgeBackgroundColor({ color: '#3E63DD' });
-  await chrome.action.setBadgeText({ text: 'REC' });
+  await refreshBadge();
   return { ok: true, rec };
 }
 
@@ -187,7 +197,7 @@ function stopRecording(opts) {
 
 async function doStop({ discard = false, openUploadPage = true }) {
   const rec = await getRec();
-  if (!rec) return { ok: false, error: 'Nothing is being recorded.' };
+  if (!rec || rec.mode === 'replay') return { ok: false, error: 'Nothing is being recorded.' };
   try {
     await chrome.tabs.sendMessage(rec.tabId, { type: 'rec:flush' });
   } catch (e) {
@@ -207,15 +217,105 @@ async function doStop({ discard = false, openUploadPage = true }) {
     /* tab closed */
   }
   await setRec(null);
-  await chrome.action.setBadgeText({ text: '' });
+  await refreshBadge();
   await closeOffscreen();
   if (!discard && res && res.ok && openUploadPage) await openUpload(res.draftId, rec);
   return res || { ok: false, error: 'The recorder did not answer.' };
 }
 
-async function takeScreenshot(tab) {
+/* ---------- instant replay ---------- */
+async function startReplay(tab, streamId) {
+  const cur = await getRec();
+  if (cur) throw busyError(cur);
+  if (!tab || !recordable(tab.url)) throw new Error('TJ Record can’t capture this page. Open a website and try again.');
+  const id = streamId || (await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }));
+  await ensureOffscreen();
+  const size = await captureSize(tab);
+  const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'replayStart', streamId: id, tabId: tab.id, size, windowMs: REPLAY_WINDOW_MS });
+  if (!res || !res.ok) {
+    await closeOffscreen();
+    throw new Error((res && res.error) || 'Instant replay failed to start.');
+  }
+  const rec = { mode: 'replay', tabId: tab.id, windowId: tab.windowId, startedAt: res.startedAt, windowMs: REPLAY_WINDOW_MS, meta: { title: tab.title || '', url: tab.url || '' } };
+  await setRec(rec);
+  await registerLogger();
+  rec.logs = await injectNow(tab.id);
+  await setRec(rec);
+  await refreshBadge();
+  return { ok: true, rec };
+}
+
+// Saves the last lengthMs (or all of it, if less is buffered) as a draft and opens the Upload page.
+// Replay keeps running.
+async function saveReplay(lengthMs) {
+  const rec = await getRec();
+  if (!rec || rec.mode !== 'replay') return { ok: false, error: 'Instant replay is off.' };
+  const ms = Math.min(rec.windowMs, Math.max(1000, Number(lengthMs) || REPLAY_LENGTHS_MS[0]));
+  try {
+    await chrome.tabs.sendMessage(rec.tabId, { type: 'rec:flush' });
+  } catch (e) {
+    /* no relay on this page */
+  }
+  await sleep(400); // let the last log batch reach the recorder
+  let meta = rec.meta;
+  try {
+    meta = await pageMeta(await chrome.tabs.get(rec.tabId));
+  } catch (e) {
+    /* tab is gone */
+  }
+  const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'replaySave', lengthMs: ms, draftId: crypto.randomUUID(), meta });
+  if (res && res.ok) await openUpload(res.draftId, rec);
+  return res || { ok: false, error: 'The recorder did not answer.' };
+}
+
+let replayStopping = null;
+function stopReplay() {
+  if (!replayStopping) replayStopping = doStopReplay().finally(() => { replayStopping = null; });
+  return replayStopping;
+}
+
+async function doStopReplay() {
+  const rec = await getRec();
+  if (!rec || rec.mode !== 'replay') return { ok: true };
+  try {
+    await chrome.runtime.sendMessage({ target: 'offscreen', type: 'replayStop' });
+  } catch (e) {
+    /* offscreen page already gone */
+  }
+  await unregisterLogger();
+  try {
+    await chrome.tabs.sendMessage(rec.tabId, { type: 'rec:off' });
+  } catch (e) {
+    /* tab closed */
+  }
+  await setRec(null);
+  await refreshBadge();
+  await closeOffscreen();
+  return { ok: true };
+}
+
+// Captures the visible part of the tab, then lets the user drag out the area to keep (crop.js) on a
+// frozen copy of it. crop.js sends the cropped image back as 'shot:save'. Pages we can't script
+// (e.g. file:// without file access) save the whole view.
+async function takeScreenshot(tab, { crop = true } = {}) {
   if (!tab || !recordable(tab.url)) throw new Error('TJ Record can’t capture this page. Open a website and try again.');
   const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+  if (crop) {
+    const token = crypto.randomUUID();
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['crop.js'] });
+      await chrome.storage.session.set({ shot: { tabId: tab.id, token } });
+      const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (url, t) => globalThis.__tjrCrop(url, t), args: [dataUrl, token] });
+      if (r && r.result === true) return { ok: true, cropping: true };
+    } catch (e) {
+      /* can't script this page */
+    }
+    await chrome.storage.session.remove('shot');
+  }
+  return saveScreenshot(tab, dataUrl);
+}
+
+async function saveScreenshot(tab, dataUrl) {
   const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
   const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
   canvas.getContext('2d').drawImage(bitmap, 0, 0);
@@ -243,13 +343,33 @@ const HANDLERS = {
   'rec:query': async (msg, sender) => {
     const rec = await getRec();
     const mine = !!rec && !!sender.tab && sender.tab.id === rec.tabId && !!rec.startedAt;
-    return mine ? { recording: true, startedAt: rec.startedAt, maxMs: rec.maxMs } : { recording: false };
+    return mine ? { recording: true, replay: rec.mode === 'replay', startedAt: rec.startedAt, maxMs: rec.maxMs } : { recording: false };
   },
   'rec:state': async () => ({ ok: true, rec: await getRec() }),
   'rec:start': async (msg) => startRecording(await chrome.tabs.get(msg.tabId), msg.streamId),
   'rec:stop': async () => stopRecording(),
   'rec:cancel': async () => stopRecording({ discard: true }),
+  'replay:start': async (msg) => startReplay(await chrome.tabs.get(msg.tabId), msg.streamId),
+  'replay:save': async (msg) => saveReplay(msg.ms),
+  'replay:stop': async () => stopReplay(),
+  'replay:ended': async (msg) => {
+    await stopReplay();
+    if (msg.error) await flagError(msg.error);
+    return { ok: true };
+  },
   shot: async (msg) => takeScreenshot(await chrome.tabs.get(msg.tabId)),
+  // From crop.js in the tab that took the screenshot (pages can't message the extension).
+  'shot:save': async (msg, sender) => {
+    const { shot } = await chrome.storage.session.get('shot');
+    if (!sender.tab || !shot || shot.tabId !== sender.tab.id || shot.token !== msg.token) return { ok: false, error: 'This screenshot expired. Take it again.' };
+    await chrome.storage.session.remove('shot');
+    return saveScreenshot(sender.tab, String(msg.image || ''));
+  },
+  'shot:cancel': async (msg) => {
+    const { shot } = await chrome.storage.session.get('shot');
+    if (shot && shot.token === msg.token) await chrome.storage.session.remove('shot');
+    return { ok: true };
+  },
   'draft:open': async (msg) => {
     await openUpload(msg.id);
     return { ok: true };
@@ -310,25 +430,30 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
+// A short "!" on the toolbar icon (the popup is closed when the shortcut or the replay fails).
+async function flagError(message) {
+  await chrome.action.setBadgeBackgroundColor({ color: '#1F2328' });
+  await chrome.action.setBadgeText({ text: '!' });
+  await chrome.action.setTitle({ title: 'TJ Record: ' + message });
+  setTimeout(() => refreshBadge(), 4000);
+}
+
 chrome.commands.onCommand.addListener(async (command, tab) => {
   if (command !== 'toggle-recording') return;
   try {
-    if (await getRec()) await stopRecording();
+    const rec = await getRec();
+    if (rec && rec.mode === 'record') await stopRecording();
     else await startRecording(tab);
   } catch (e) {
-    await chrome.action.setBadgeBackgroundColor({ color: '#1F2328' });
-    await chrome.action.setBadgeText({ text: '!' });
-    await chrome.action.setTitle({ title: 'TJ Record: ' + e.message });
-    setTimeout(() => {
-      chrome.action.setBadgeText({ text: '' });
-      chrome.action.setTitle({ title: 'TJ Record' });
-    }, 4000);
+    await flagError(e.message);
   }
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   const rec = await getRec();
-  if (rec && rec.tabId === tabId) stopRecording();
+  if (!rec || rec.tabId !== tabId) return;
+  if (rec.mode === 'replay') stopReplay();
+  else stopRecording();
 });
 
 chrome.runtime.onInstalled.addListener(() => registerBridge());
@@ -339,4 +464,4 @@ chrome.runtime.onStartup.addListener(async () => {
 });
 
 // For automated checks only (service worker console / test harness).
-globalThis.tjr = { startRecording, stopRecording, takeScreenshot, getRec, listDrafts, getDraft, registerBridge };
+globalThis.tjr = { startRecording, stopRecording, startReplay, saveReplay, stopReplay, takeScreenshot, getRec, listDrafts, getDraft, registerBridge };

@@ -1,5 +1,6 @@
 // Extension-world half of the page logger. Asks the service worker whether this tab is being
-// recorded, forwards logger.js batches to the recorder, and shows the floating stop control.
+// recorded, forwards logger.js batches to the recorder, and shows the floating stop control
+// (recordings only; instant replay runs without one).
 (() => {
   if (window.__tjrRelay) return;
   window.__tjrRelay = true;
@@ -49,7 +50,7 @@
     if (r && r.recording) {
       live = true;
       setState('live');
-      pill.show(r);
+      if (!r.replay) pill.show(r);
     } else {
       setState('off');
     }

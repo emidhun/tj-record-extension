@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TJ Record",
-  "version": "0.1.0",
-  "description": "Record a tab with its console, network requests and clicks, then file it in TJ Record.",
+  "version": "0.2.0",
+  "description": "Record a tab, save an instant replay or crop a screenshot, with console, network and clicks, for TJ Record.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/16.png",
