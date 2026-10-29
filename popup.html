@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>TJ Record</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="icons/32.png" width="20" height="20" alt="">
+    <b>TJ Record</b>
+    <span class="sp"></span>
+    <button id="gear" class="ib" title="Settings" aria-label="Settings" aria-expanded="false">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </header>
+
+  <section id="settings" class="card" hidden>
+    <label for="appUrl">TJ Record app URL</label>
+    <input id="appUrl" type="url" spellcheck="false" autocomplete="off">
+    <p class="hint">Recordings open this app's Upload page. Paste any page link from the app.</p>
+    <div class="row">
+      <button id="save" class="btn small">Save</button>
+      <button id="reset" class="link">Use default</button>
+      <span id="saved" class="hint" hidden>Saved</span>
+    </div>
+  </section>
+
+  <main id="idle" hidden>
+    <button id="record" class="btn primary big">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="14" height="13" rx="2.5"/><path d="M16.5 10l5-3v10l-5-3z"/></svg>
+      <span>Record this tab</span>
+      <kbd id="kbd"></kbd>
+    </button>
+    <p class="hint center">Video, console, network and clicks · max 3 min</p>
+    <button id="shot" class="btn big">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.4-2h5l1.4 2h1.6A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.5"/></svg>
+      <span>Screenshot</span>
+    </button>
+    <p id="blocked" class="note" hidden>This page can't be recorded. Open a website and try again.</p>
+  </main>
+
+  <main id="recording" hidden>
+    <div class="live">
+      <span class="dot"></span>
+      <div class="grow">
+        <div id="recTitle" class="ttl"></div>
+        <div id="recTime" class="hint"></div>
+      </div>
+    </div>
+    <button id="stop" class="btn primary big">Stop and upload</button>
+    <div class="row center">
+      <button id="goto" class="link" hidden>Go to the recorded tab</button>
+      <button id="discard" class="link">Discard</button>
+    </div>
+  </main>
+
+  <p id="error" class="error" role="alert" hidden></p>
+
+  <section id="drafts" hidden>
+    <h2>Waiting to upload</h2>
+    <ul id="draftList"></ul>
+  </section>
+
+  <footer>
+    <button id="open" class="link">Open TJ Record</button>
+    <span id="version" class="hint"></span>
+  </footer>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
