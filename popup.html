@@ -6,99 +6,151 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <header>
-    <img src="icons/32.png" width="20" height="20" alt="">
-    <b>TJ Record</b>
-    <span class="sp"></span>
-    <button id="gear" class="ib" title="Settings" aria-label="Settings" aria-expanded="false">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
-    </button>
-  </header>
+  <!-- Main view -->
+  <div id="main">
+    <header class="bar">
+      <img src="icons/32.png" width="20" height="20" alt="">
+      <b class="brand">TJ Record</b>
+      <span class="sp"></span>
+      <button id="gear" class="ib" title="Settings" aria-label="Settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+    </header>
 
-  <section id="settings" class="card" hidden>
-    <label for="appUrl">TJ Record app URL</label>
-    <input id="appUrl" type="url" spellcheck="false" autocomplete="off">
-    <p class="hint">Recordings open this app's Upload page. Paste any page link from the app.</p>
-    <div class="row">
-      <button id="save" class="btn small">Save</button>
-      <button id="reset" class="link">Use default</button>
-      <span id="saved" class="hint" hidden>Saved</span>
-    </div>
-  </section>
-
-  <main id="idle" hidden>
-    <button id="record" class="btn primary big">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="14" height="13" rx="2.5"/><path d="M16.5 10l5-3v10l-5-3z"/></svg>
-      <span>Record this tab</span>
-      <kbd id="kbd"></kbd>
-    </button>
-    <p class="hint center">Video, console, network and clicks · max 3 min</p>
-    <button id="shot" class="btn big">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.4-2h5l1.4 2h1.6A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.5"/></svg>
-      <span>Screenshot</span>
-    </button>
-    <p class="hint center">Drag to select an area, or keep the whole view</p>
-    <div class="card replay">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.6-6.4"/><path d="M3 4v4.5h4.5"/><path d="M12 7.5V12l3 2"/></svg>
-      <div class="grow">
-        <b>Instant replay</b>
-        <div class="hint">Keeps the last 3 min of this tab. Save it after a bug happens.</div>
+    <!-- Recording in progress -->
+    <section id="recording" class="card" hidden>
+      <div class="status">
+        <span class="dot"></span>
+        <span id="recLabel" class="label">Recording</span>
+        <span id="recTime" class="time"></span>
       </div>
-      <button id="replayOn" class="btn small">Turn on</button>
-    </div>
-    <p id="blocked" class="note" hidden>This page can't be recorded. Open a website and try again.</p>
-  </main>
-
-  <main id="replay" hidden>
-    <div class="live">
-      <span class="dot"></span>
-      <div class="grow">
-        <div id="rpTitle" class="ttl"></div>
-        <div id="rpTime" class="hint"></div>
+      <div id="recTitle" class="page-title"></div>
+      <div id="recMeterBox" class="meter" aria-hidden="true"><span id="recMeter"></span></div>
+      <div id="recNote" class="sub" hidden>Video only: this page doesn't allow logs.</div>
+      <button id="stop" class="btn primary block">Stop and upload</button>
+      <div class="actions">
+        <button id="discard" class="btn ghost">Discard</button>
+        <button id="goto" class="btn ghost" hidden>Go to the recorded tab</button>
       </div>
-    </div>
-    <div class="lengths" role="group" aria-label="Save the last">
-      <button class="btn primary" data-ms="60000">Last 1 min</button>
-      <button class="btn primary" data-ms="120000">Last 2 min</button>
-      <button class="btn primary" data-ms="180000">Last 3 min</button>
-    </div>
-    <p class="hint center">Saves video, console, network and clicks. Replay keeps running.</p>
-    <button id="rpShot" class="btn">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.4-2h5l1.4 2h1.6A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.5"/></svg>
-      <span>Screenshot</span>
-    </button>
-    <div class="row center">
-      <button id="rpGoto" class="link" hidden>Go to the tab</button>
-      <button id="rpOff" class="link">Turn off instant replay</button>
-    </div>
-  </main>
+    </section>
 
-  <main id="recording" hidden>
-    <div class="live">
-      <span class="dot"></span>
-      <div class="grow">
-        <div id="recTitle" class="ttl"></div>
-        <div id="recTime" class="hint"></div>
+    <!-- Instant replay is on: save controls -->
+    <section id="replay" class="card" hidden>
+      <div class="status">
+        <span class="dot"></span>
+        <span class="label">Instant replay</span>
+        <span id="rpTime" class="time"></span>
       </div>
-    </div>
-    <button id="stop" class="btn primary big">Stop and upload</button>
-    <div class="row center">
-      <button id="goto" class="link" hidden>Go to the recorded tab</button>
-      <button id="discard" class="link">Discard</button>
-    </div>
-  </main>
+      <div class="page-title"><span id="rpTitle"></span><button id="rpGoto" class="link" hidden>Go to tab</button></div>
+      <div class="save-row">
+        <span class="sub">Save the last</span>
+        <div class="seg" role="group" aria-label="Save the last">
+          <button data-ms="60000">1 min</button>
+          <button data-ms="120000">2 min</button>
+          <button data-ms="180000">3 min</button>
+        </div>
+      </div>
+    </section>
 
-  <p id="error" class="error" role="alert" hidden></p>
+    <!-- Actions -->
+    <nav id="menu" class="menu" aria-label="Capture">
+      <button id="record" class="item">
+        <span class="tile">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="14" height="13" rx="2.5"/><path d="M16.5 10l5-3v10l-5-3z"/></svg>
+        </span>
+        <span class="text">
+          <span class="title">Record tab</span>
+          <span id="recordSub" class="sub">With console, network and clicks</span>
+        </span>
+        <kbd id="kbd"></kbd>
+      </button>
+      <button id="screen" class="item">
+        <span class="tile">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        </span>
+        <span class="text">
+          <span class="title">Record screen</span>
+          <span id="screenSub" class="sub">Entire screen or a window</span>
+        </span>
+      </button>
+      <button id="shot" class="item">
+        <span class="tile">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v14a1 1 0 0 0 1 1h13"/><path d="M3 7h13a1 1 0 0 1 1 1v13"/></svg>
+        </span>
+        <span class="text">
+          <span class="title">Screenshot</span>
+          <span class="sub">Select an area or the whole view</span>
+        </span>
+      </button>
+    </nav>
+    <p id="blocked" class="notice" hidden>Tab recording and screenshots don't work on this page. Open a website, or record your screen.</p>
+    <p id="error" class="error" role="alert" hidden></p>
 
-  <section id="drafts" hidden>
-    <h2>Waiting to upload</h2>
-    <ul id="draftList"></ul>
-  </section>
+    <section id="drafts" class="drafts" hidden>
+      <h2>Waiting to upload <span id="draftCount" class="count"></span></h2>
+      <ul id="draftList"></ul>
+    </section>
 
-  <footer>
-    <button id="open" class="link">Open TJ Record</button>
-    <span id="version" class="hint"></span>
-  </footer>
+    <footer class="foot">
+      <button id="open" class="link">
+        Open TJ Record
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
+      </button>
+      <span id="version" class="muted"></span>
+    </footer>
+  </div>
+
+  <!-- Settings view -->
+  <div id="settings" hidden>
+    <header class="bar">
+      <button id="back" class="ib" title="Back" aria-label="Back">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <b class="brand">Settings</b>
+    </header>
+
+    <section class="group">
+      <h3>Capture</h3>
+      <div class="row-setting">
+        <div class="text">
+          <label for="replaySwitch" class="title">Instant replay</label>
+          <span class="sub">Keeps the last 3 minutes of the current tab, so you can save a bug after it happens.</span>
+          <span id="replayWhere" class="sub on" hidden></span>
+        </div>
+        <button id="replaySwitch" class="switch" role="switch" aria-checked="false"><span></span></button>
+      </div>
+      <p id="replayNote" class="sub note" hidden></p>
+    </section>
+
+    <section class="group">
+      <h3>Connection</h3>
+      <label for="appUrl" class="title">TJ Record app URL</label>
+      <input id="appUrl" type="url" spellcheck="false" autocomplete="off">
+      <span class="sub">Recordings open this app's Upload page. Paste any page link from the app.</span>
+      <div class="inline">
+        <button id="save" class="btn small">Save</button>
+        <button id="reset" class="btn ghost small">Use default</button>
+        <span id="saved" class="sub ok" hidden>Saved</span>
+      </div>
+    </section>
+
+    <section class="group">
+      <h3>Keyboard</h3>
+      <div class="row-setting">
+        <div class="text">
+          <span class="title">Start or stop recording</span>
+        </div>
+        <kbd id="kbd2"></kbd>
+        <button id="shortcuts" class="link">Change</button>
+      </div>
+    </section>
+
+    <p id="error2" class="error" role="alert" hidden></p>
+    <footer class="foot">
+      <span class="muted">TJ Record extension</span>
+      <span id="version2" class="muted"></span>
+    </footer>
+  </div>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

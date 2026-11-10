@@ -577,8 +577,7 @@
 
   const pendingInputs = new Map();
   const lastValues = new WeakMap();
-  const emitInput = (el, at) => {
-    const ev = inputEvent(el);
+  const emitInput = (el, at, ev) => {
     if (lastValues.get(el) === ev.value) return;
     lastValues.set(el, ev.value);
     ev.at = at;
@@ -598,7 +597,7 @@
   const flushInputs = () => {
     pendingInputs.forEach((p, el) => {
       clearTimeout(p.timer);
-      emitInput(el, p.at);
+      emitInput(el, p.at, p.ev);
     });
     pendingInputs.clear();
   };
@@ -611,11 +610,14 @@
       const prev = pendingInputs.get(el);
       if (prev) clearTimeout(prev.timer);
       const at = now(); // last keystroke, so the video already shows the full value at this time
+      // Read the value now, not when the timer fires: chat, search and todo inputs clear themselves
+      // right after Enter, and the typed text would be lost.
+      const ev = inputEvent(el);
       const timer = setTimeout(() => {
         pendingInputs.delete(el);
-        emitInput(el, at);
+        emitInput(el, at, ev);
       }, 800);
-      pendingInputs.set(el, { timer, at });
+      pendingInputs.set(el, { timer, at, ev });
     } catch (err) {
       /* ignore */
     }
@@ -630,6 +632,13 @@
         if (e.key !== 'Enter' && e.key !== 'Escape' && !combo) return;
         if (e.target && e.target.tagName === OURS) return;
         const t = targetOf(e);
+        // Enter usually submits what was typed: log it now, before the next message replaces it.
+        const pending = e.key === 'Enter' && t && pendingInputs.get(t);
+        if (pending) {
+          clearTimeout(pending.timer);
+          pendingInputs.delete(t);
+          emitInput(t, pending.at, pending.ev);
+        }
         const key = combo ? (e.metaKey ? 'Cmd+' : 'Ctrl+') + e.key.toUpperCase() : e.key;
         emit({ k: 'action', type: 'keydown', key, target: t && t !== document.body && t !== document.documentElement ? describe(t) : '' });
       } catch (err) {

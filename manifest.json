@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TJ Record",
-  "version": "0.2.0",
-  "description": "Record a tab, save an instant replay or crop a screenshot, with console, network and clicks, for TJ Record.",
+  "version": "0.4.0",
+  "description": "Record a tab or your screen, save an instant replay or crop a screenshot, with console, network and clicks.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/16.png",
@@ -22,7 +22,7 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "permissions": ["tabCapture", "offscreen", "scripting", "storage", "unlimitedStorage"],
+  "permissions": ["tabCapture", "desktopCapture", "offscreen", "scripting", "storage", "unlimitedStorage"],
   "host_permissions": ["<all_urls>"],
   "commands": {
     "toggle-recording": {

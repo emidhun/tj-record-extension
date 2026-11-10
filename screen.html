@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Screen recording · TJ Record</title>
+  <link rel="icon" href="icons/32.png">
+  <link rel="stylesheet" href="screen.css">
+</head>
+<body data-state="loading">
+  <main class="card">
+    <header>
+      <img src="icons/32.png" width="22" height="22" alt="">
+      <b>TJ Record</b>
+      <span class="sp"></span>
+      <span class="chip">Screen recording</span>
+    </header>
+
+    <div class="status">
+      <span class="dot"></span>
+      <span id="msg" class="label">Opening the screen picker…</span>
+      <span id="time" class="time"></span>
+    </div>
+    <div class="meter" aria-hidden="true"><span id="meter"></span></div>
+
+    <dl>
+      <dt>Logs from</dt>
+      <dd id="from">—</dd>
+    </dl>
+    <p id="hint" class="hint">Pick a screen or a window in Chrome's dialog. Console, network and clicks come from the tab you started on.</p>
+
+    <div class="actions">
+      <button id="stop" class="btn primary" hidden>Stop and upload</button>
+      <button id="discard" class="btn ghost" hidden>Discard</button>
+      <button id="cancel" class="btn ghost">Cancel</button>
+    </div>
+  </main>
+  <script type="module" src="screen.js"></script>
+</body>
+</html>

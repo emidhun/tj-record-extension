@@ -1,2 +1,6 @@
 test/out/
 node_modules/
+dist/
+.agent-profile/
+recordings/
+.DS_Store

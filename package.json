@@ -1,0 +1,15 @@
+{
+  "name": "tj-record-extension",
+  "private": true,
+  "type": "module",
+  "description": "TJ Record Chrome extension: tests, packaging and the agent recorder. The extension itself has no build step.",
+  "scripts": {
+    "setup": "playwright-core install chromium",
+    "test": "node test/run.mjs",
+    "package": "scripts/package.sh",
+    "agent": "node scripts/agent-record.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.63.0"
+  }
+}

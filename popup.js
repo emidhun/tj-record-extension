@@ -15,14 +15,17 @@ const ago = (ts) => {
   const h = Math.round(m / 60);
   return h < 24 ? h + ' h ago' : Math.round(h / 24) + ' d ago';
 };
+const ICON_TRASH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>';
 
 let tab = null;
 let rec = null;
 let ticker = 0;
 
 function showError(message) {
-  $('error').textContent = message || '';
-  $('error').hidden = !message;
+  for (const id of ['error', 'error2']) {
+    $(id).textContent = message || '';
+    $(id).hidden = !message;
+  }
 }
 
 async function run(button, label, fn) {
@@ -37,6 +40,7 @@ async function run(button, label, fn) {
   }
   button.innerHTML = original;
   button.disabled = false;
+  render();
 }
 
 const ok = (r, fallback) => {
@@ -44,80 +48,104 @@ const ok = (r, fallback) => {
   return r;
 };
 
+const focusTab = async () => {
+  // While Chrome's screen picker is open, "go to" means the picker's tab.
+  const id = rec.pending && rec.recorderTabId != null ? rec.recorderTabId : rec.tabId;
+  const t = await chrome.tabs.update(id, { active: true });
+  await chrome.windows.update(t.windowId, { focused: true });
+  window.close();
+};
+
+/* ---------- main view ---------- */
 function render() {
-  const mode = rec ? (rec.mode === 'replay' ? 'replay' : 'recording') : 'idle';
-  $('idle').hidden = mode !== 'idle';
-  $('recording').hidden = mode !== 'recording';
-  $('replay').hidden = mode !== 'replay';
+  const mode = rec ? rec.mode : 'idle';
+  const here = !!rec && !!tab && tab.id === rec.tabId;
+  const can = !!tab && recordable(tab.url);
   clearInterval(ticker);
-  if (mode === 'recording') {
-    $('recTitle').textContent = rec.meta.title || rec.meta.url;
-    const update = () => {
-      const elapsed = Date.now() - rec.startedAt;
-      $('recTime').textContent = 'Recording · ' + clock(elapsed) + ' of ' + clock(rec.maxMs) + (rec.logs === false ? ' · video only' : '');
+
+  $('recording').hidden = mode !== 'record';
+  $('replay').hidden = mode !== 'replay';
+  $('menu').hidden = mode === 'record';
+  $('blocked').hidden = can || mode === 'record';
+
+  $('record').disabled = !can || mode === 'replay';
+  $('recordSub').textContent = mode === 'replay' ? 'Turn off replay to record' : 'With console, network and clicks';
+  $('screen').disabled = mode === 'replay';
+  $('screenSub').textContent = mode === 'replay' ? 'Turn off replay to record' : can ? 'Entire screen or a window' : 'Entire screen or a window · no logs here';
+  $('shot').disabled = !can;
+
+  let update = null;
+  if (mode === 'record') {
+    const screen = rec.source === 'screen';
+    $('recTitle').textContent = (screen ? 'Logs from ' : '') + (rec.meta.title || rec.meta.url);
+    $('recNote').hidden = rec.logs !== false;
+    $('goto').hidden = here && !rec.pending;
+    $('goto').textContent = rec.pending ? 'Go to the screen picker' : screen ? 'Go to the logged tab' : 'Go to the recorded tab';
+    $('recLabel').textContent = rec.pending ? 'Choose a screen or window' : screen ? 'Recording screen' : 'Recording tab';
+    $('stop').hidden = !!rec.pending;
+    $('recMeterBox').hidden = !!rec.pending;
+    $('discard').textContent = rec.pending ? 'Cancel' : 'Discard';
+    $('discard').dataset.armed = rec.pending ? '1' : '';
+    if (rec.pending) {
+      $('recTime').textContent = '';
+      return renderSettings();
+    }
+    update = () => {
+      const elapsed = Math.min(Date.now() - rec.startedAt, rec.maxMs);
+      $('recTime').textContent = clock(elapsed) + ' / ' + clock(rec.maxMs);
+      $('recMeter').style.width = (100 * elapsed) / rec.maxMs + '%';
     };
-    update();
-    ticker = setInterval(update, 500);
-    $('goto').hidden = !!tab && tab.id === rec.tabId;
-    return;
   }
   if (mode === 'replay') {
-    renderReplay();
-    return;
+    $('rpTitle').textContent = (here && tab.title) || rec.meta.title || rec.meta.url;
+    $('rpGoto').hidden = here;
+    const buttons = [...document.querySelectorAll('#replay [data-ms]')];
+    // "N min" is enabled once more than the next-shorter length is buffered; with less than N
+    // minutes buffered it saves everything so far.
+    update = () => {
+      const buffered = Math.min(Date.now() - rec.startedAt, rec.windowMs);
+      $('rpTime').textContent = buffered >= rec.windowMs ? 'Last ' + clock(rec.windowMs) + ' kept' : clock(buffered) + ' buffered';
+      let prev = 0;
+      buttons.forEach((b) => {
+        const ms = Number(b.dataset.ms);
+        if (b.dataset.busy !== '1') b.disabled = buffered <= prev + 2000;
+        b.title = buffered < ms ? 'Saves the ' + clock(buffered) + ' buffered so far' : 'Saves the last ' + ms / 60000 + ' min';
+        prev = ms;
+      });
+    };
   }
-  const can = !!tab && recordable(tab.url);
-  $('record').disabled = !can;
-  $('shot').disabled = !can;
-  $('replayOn').disabled = !can;
-  $('blocked').hidden = can;
-}
-
-// Each "Last N min" button is enabled once more than the next-shorter length is buffered; with less
-// than N minutes buffered it saves everything so far.
-function renderReplay() {
-  const here = !!tab && tab.id === rec.tabId;
-  $('rpTitle').textContent = (here && tab.title) || rec.meta.title || rec.meta.url;
-  $('rpGoto').hidden = here;
-  $('rpShot').disabled = !tab || !recordable(tab.url);
-  const buttons = [...document.querySelectorAll('#replay [data-ms]')];
-  const update = () => {
-    const buffered = Math.min(Date.now() - rec.startedAt, rec.windowMs);
-    $('rpTime').textContent = 'Instant replay · ' + (buffered >= rec.windowMs ? 'keeping the last ' + clock(rec.windowMs) : clock(buffered) + ' buffered') + (rec.logs === false ? ' · video only' : '');
-    let prev = 0;
-    buttons.forEach((b) => {
-      const ms = Number(b.dataset.ms);
-      if (b.dataset.busy !== '1') b.disabled = buffered <= prev + 2000;
-      b.title = buffered < ms ? 'Saves the ' + clock(buffered) + ' buffered so far' : 'Saves the last ' + ms / 60000 + ' min';
-      prev = ms;
-    });
-  };
-  update();
-  ticker = setInterval(update, 500);
+  if (update) {
+    update();
+    ticker = setInterval(update, 500);
+  }
+  renderSettings();
 }
 
 async function renderDrafts() {
   const r = await send({ type: 'drafts:list' });
   const drafts = (r && r.drafts) || [];
   $('drafts').hidden = !drafts.length;
+  $('draftCount').textContent = drafts.length ? '· ' + drafts.length : '';
   const list = $('draftList');
   list.textContent = '';
   drafts.forEach((d) => {
     const li = document.createElement('li');
     const text = document.createElement('div');
-    text.className = 'grow';
+    text.className = 'text';
     const title = document.createElement('div');
-    title.className = 'ttl';
+    title.className = 'title';
     title.textContent = d.meta.title || d.meta.url || 'Recording';
     const meta = document.createElement('div');
-    meta.className = 'meta';
-    const bits = [d.type === 'screenshot' ? 'Screenshot' : (d.replay ? 'Replay ' : '') + clock(d.durationMs), mb(d.size), ago(d.createdAt)];
-    meta.textContent = bits.join(' · ');
+    meta.className = 'sub';
+    const kind = d.type === 'screenshot' ? 'Screenshot' : ({ screen: 'Screen ', replay: 'Replay ' }[d.capture] || (d.replay ? 'Replay ' : 'Tab ')) + clock(d.durationMs);
+    meta.title = mb(d.size);
     if (d.counts && d.counts.errors) {
       const err = document.createElement('span');
       err.className = 'err';
-      err.textContent = ' · ' + d.counts.errors + (d.counts.errors === 1 ? ' error' : ' errors');
-      meta.appendChild(err);
+      err.textContent = d.counts.errors + (d.counts.errors === 1 ? ' error' : ' errors');
+      meta.append(err, ' · ');
     }
+    meta.append(kind + ' · ' + ago(d.createdAt));
     text.append(title, meta);
     const upload = document.createElement('button');
     upload.className = 'btn small';
@@ -127,12 +155,15 @@ async function renderDrafts() {
       window.close();
     }));
     const del = document.createElement('button');
-    del.className = 'link';
-    del.textContent = 'Delete';
+    del.className = 'ib';
+    del.title = 'Delete';
+    del.setAttribute('aria-label', 'Delete');
+    del.innerHTML = ICON_TRASH;
     del.addEventListener('click', async () => {
       if (del.dataset.armed !== '1') {
         del.dataset.armed = '1';
-        del.textContent = 'Confirm';
+        del.classList.add('armed');
+        del.textContent = 'Delete';
         return;
       }
       await send({ type: 'draft:delete', id: d.id });
@@ -143,8 +174,26 @@ async function renderDrafts() {
   });
 }
 
-async function loadSettings() {
-  $('appUrl').value = await getAppUrl();
+/* ---------- settings view ---------- */
+function renderSettings() {
+  const sw = $('replaySwitch');
+  const on = !!rec && rec.mode === 'replay';
+  const can = !!tab && recordable(tab.url);
+  sw.setAttribute('aria-checked', String(on));
+  sw.disabled = (!on && !can) || (!!rec && rec.mode === 'record');
+  const where = $('replayWhere');
+  where.hidden = !on;
+  if (on) where.textContent = 'On for “' + (rec.meta.title || rec.meta.url) + '”';
+  const note = $('replayNote');
+  note.hidden = !sw.disabled;
+  note.textContent = rec && rec.mode === 'record' ? 'Stop the recording to use instant replay.' : 'Open a website to use instant replay.';
+}
+
+function showView(name) {
+  $('main').hidden = name !== 'main';
+  $('settings').hidden = name !== 'settings';
+  showError('');
+  if (name === 'settings') $('replaySwitch').focus();
 }
 
 async function init() {
@@ -152,31 +201,31 @@ async function init() {
   rec = ((await send({ type: 'rec:state' })) || {}).rec || null;
   const commands = await chrome.commands.getAll();
   const toggle = commands.find((c) => c.name === 'toggle-recording');
-  $('kbd').textContent = (toggle && toggle.shortcut) || '';
-  $('version').textContent = 'v' + chrome.runtime.getManifest().version;
+  $('kbd').textContent = $('kbd2').textContent = (toggle && toggle.shortcut) || '';
+  if (!$('kbd2').textContent) $('kbd2').replaceWith(Object.assign(document.createElement('span'), { className: 'muted', textContent: 'Not set' }));
+  $('version').textContent = $('version2').textContent = 'v' + chrome.runtime.getManifest().version;
+  $('appUrl').value = await getAppUrl();
   render();
   renderDrafts();
-  loadSettings();
 }
 
-$('record').addEventListener('click', () => run($('record'), 'Starting…', async () => {
+/* ---------- actions ---------- */
+$('record').addEventListener('click', () => run($('record'), '', async () => {
   // Ask for the stream here: the popup click is the user gesture tab capture needs.
   const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
   ok(await send({ type: 'rec:start', tabId: tab.id, streamId }), 'Could not start recording.');
   window.close();
 }));
 
-const shoot = (button) => run(button, 'Capturing…', async () => {
+$('screen').addEventListener('click', () => run($('screen'), '', async () => {
+  // The screen picker opens in a TJ Record tab; Chrome closes this popup when it gets focus.
+  ok(await send({ type: 'screen:start', tabId: tab.id }), 'Could not start the screen recording.');
+  window.close();
+}));
+
+$('shot').addEventListener('click', () => run($('shot'), '', async () => {
   ok(await send({ type: 'shot', tabId: tab.id }), 'Could not take a screenshot.');
   window.close();
-});
-$('shot').addEventListener('click', () => shoot($('shot')));
-$('rpShot').addEventListener('click', () => shoot($('rpShot')));
-
-$('replayOn').addEventListener('click', () => run($('replayOn'), 'Starting…', async () => {
-  const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
-  rec = ok(await send({ type: 'replay:start', tabId: tab.id, streamId }), 'Could not turn on instant replay.').rec;
-  render();
 }));
 
 document.querySelectorAll('#replay [data-ms]').forEach((b) => {
@@ -189,17 +238,8 @@ document.querySelectorAll('#replay [data-ms]').forEach((b) => {
   });
 });
 
-$('rpOff').addEventListener('click', () => run($('rpOff'), 'Turning off…', async () => {
-  ok(await send({ type: 'replay:stop' }), 'Could not turn off instant replay.');
-  rec = null;
-  render();
-}));
-
-$('rpGoto').addEventListener('click', async () => {
-  await chrome.tabs.update(rec.tabId, { active: true });
-  await chrome.windows.update(rec.windowId, { focused: true });
-  window.close();
-});
+$('rpGoto').addEventListener('click', focusTab);
+$('goto').addEventListener('click', focusTab);
 
 $('stop').addEventListener('click', () => run($('stop'), 'Saving…', async () => {
   ok(await send({ type: 'rec:stop' }), 'Could not stop the recording.');
@@ -219,23 +259,40 @@ $('discard').addEventListener('click', () => {
   });
 });
 
-$('goto').addEventListener('click', async () => {
-  await chrome.tabs.update(rec.tabId, { active: true });
-  await chrome.windows.update(rec.windowId, { focused: true });
+$('open').addEventListener('click', async () => {
+  await chrome.tabs.create({ url: pageUrl(await getAppUrl(), 'home') });
   window.close();
 });
 
-$('gear').addEventListener('click', () => {
-  const open = $('settings').hidden;
-  $('settings').hidden = !open;
-  $('gear').setAttribute('aria-expanded', String(open));
-  if (open) $('appUrl').focus();
+/* ---------- settings ---------- */
+$('gear').addEventListener('click', () => showView('settings'));
+$('back').addEventListener('click', () => showView('main'));
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('settings').hidden) {
+    e.preventDefault();
+    showView('main');
+  }
+});
+
+$('replaySwitch').addEventListener('click', () => {
+  const sw = $('replaySwitch');
+  const on = sw.getAttribute('aria-checked') === 'true';
+  sw.setAttribute('aria-checked', String(!on)); // move the knob right away
+  run(sw, '', async () => {
+    if (on) {
+      ok(await send({ type: 'replay:stop' }), 'Could not turn off instant replay.');
+      rec = null;
+    } else {
+      // The switch click is the user gesture tab capture needs.
+      const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+      rec = ok(await send({ type: 'replay:start', tabId: tab.id, streamId }), 'Could not turn on instant replay.').rec;
+    }
+  });
 });
 
 $('save').addEventListener('click', () => run($('save'), '', async () => {
   const r = ok(await send({ type: 'settings:save', appUrl: $('appUrl').value }), 'Could not save the URL.');
   $('appUrl').value = r.appUrl;
-  $('save').disabled = false;
   $('saved').hidden = false;
   setTimeout(() => { $('saved').hidden = true; }, 1500);
 }));
@@ -244,8 +301,8 @@ $('reset').addEventListener('click', () => {
   $('appUrl').value = DEFAULT_APP_URL;
 });
 
-$('open').addEventListener('click', async () => {
-  await chrome.tabs.create({ url: pageUrl(await getAppUrl(), 'home') });
+$('shortcuts').addEventListener('click', () => {
+  chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
   window.close();
 });
 

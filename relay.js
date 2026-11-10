@@ -2,8 +2,12 @@
 // recorded, forwards logger.js batches to the recorder, and shows the floating stop control
 // (recordings only; instant replay runs without one).
 (() => {
-  if (window.__tjrRelay) return;
-  window.__tjrRelay = true;
+  // Injected again when a new capture starts on a page that already had one: just reconnect, or the
+  // logger would stay off for the rest of this page.
+  if (typeof window.__tjrRelay === 'function') {
+    window.__tjrRelay();
+    return;
+  }
 
   let state = '';
   let live = false;
@@ -46,15 +50,17 @@
     }
   });
 
-  send({ type: 'rec:query' }).then((r) => {
-    if (r && r.recording) {
-      live = true;
-      setState('live');
-      if (!r.replay) pill.show(r);
-    } else {
-      setState('off');
-    }
-  });
+  const connect = () =>
+    send({ type: 'rec:query' }).then((r) => {
+      if (r && r.recording) {
+        live = true;
+        setState('live');
+        if (!r.replay) pill.show(r);
+      } else if (!live) {
+        setState('off');
+      }
+    });
+  window.__tjrRelay = connect;
 
   /* ---------- floating control (top frame only, closed shadow root) ---------- */
   const pill = (() => {
@@ -129,4 +135,6 @@
     };
     return { show, hide };
   })();
+
+  connect();
 })();

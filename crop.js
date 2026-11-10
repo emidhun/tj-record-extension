@@ -1,9 +1,9 @@
 // Screenshot area picker. background.js captures the visible tab first, injects this file and calls
 // __tjrCrop(pngDataUrl, token). We show that frozen image over the page; the user drags out the area
 // to keep (or presses Enter / "Whole view"), and the cropped PNG goes back as 'shot:save'.
+// Defined fresh on every injection: an existing copy may come from before the extension was
+// reloaded, when its messages no longer reach the extension.
 (() => {
-  if (globalThis.__tjrCrop) return;
-
   const CSS = `
     :host{all:initial}
     .ov{position:fixed;inset:0;z-index:2147483647;overflow:hidden;cursor:crosshair;user-select:none;-webkit-user-select:none;touch-action:none;
@@ -28,21 +28,56 @@
     kbd{font-size:10px;opacity:.6}
     .ov.busy .bar button{display:none}`;
 
-  let close = null;
+  let close = globalThis.__tjrCropClose || null;
+
+  // The picker is a modal <dialog>: the topmost modal sits above any z-index, popover or the page's own
+  // modal dialog, ignores transformed ancestors, and makes the rest of the page inert (an open page
+  // modal would otherwise make *us* inert and swallow the drag). Inline !important styles beat the
+  // page's rules, e.g. ":not(:defined){visibility:hidden}" matches our custom tag.
+  const BOX_STYLE = {
+    all: 'initial',
+    position: 'fixed',
+    inset: '0',
+    width: '100vw',
+    height: '100vh',
+    'max-width': 'none',
+    'max-height': 'none',
+    margin: '0',
+    padding: '0',
+    border: '0',
+    background: 'transparent',
+    overflow: 'visible',
+    display: 'block',
+    visibility: 'visible',
+    opacity: '1',
+    'pointer-events': 'auto',
+    transform: 'none',
+    filter: 'none',
+    zoom: '1',
+    'z-index': '2147483647',
+  };
 
   globalThis.__tjrCrop = (dataUrl, token) => {
     if (close) close();
+    document.querySelectorAll('dialog[data-tjr-crop], tjr-crop').forEach((el) => el.remove()); // left by an older copy
     const send = (msg) => {
       try {
         return chrome.runtime.sendMessage(msg).catch(() => null);
       } catch (e) {
-        return Promise.resolve(null); // extension was reloaded
+        return Promise.resolve({ ok: false, error: 'TJ Record was updated. Refresh this page and try again.' });
       }
     };
 
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    const dlg = document.createElement('dialog');
+    dlg.setAttribute('data-tjr-crop', '');
+    dlg.setAttribute('aria-label', 'TJ Record screenshot');
+    const backdrop = document.createElement('style');
+    backdrop.textContent = 'dialog[data-tjr-crop]::backdrop{background:transparent!important;backdrop-filter:none!important}';
     const host = document.createElement('tjr-crop');
+    for (const el of [dlg, host]) Object.entries(BOX_STYLE).forEach(([k, v]) => el.style.setProperty(k, v, 'important'));
+    dlg.append(backdrop, host);
     const root = host.attachShadow({ mode: 'closed' });
     root.innerHTML =
       '<style>' + CSS + '</style>' +
@@ -91,11 +126,16 @@
 
     const teardown = () => {
       window.removeEventListener('keydown', onKey, true);
-      host.remove();
+      try {
+        dlg.close();
+      } catch (e) {
+        /* already closed */
+      }
+      dlg.remove();
       if (bmp) bmp.close();
-      if (close === teardown) close = null;
+      if (close === teardown) close = globalThis.__tjrCropClose = null;
     };
-    close = teardown;
+    close = globalThis.__tjrCropClose = teardown;
 
     function cancel() {
       done = true;
@@ -163,7 +203,13 @@
     root.querySelector('.all').addEventListener('click', () => !done && finish(null));
     root.querySelector('.x').addEventListener('click', () => !done && cancel());
 
-    document.documentElement.appendChild(host);
+    // Esc on a modal dialog is a close request; we handle Esc ourselves.
+    dlg.addEventListener('cancel', (e) => {
+      e.preventDefault();
+      if (!done) cancel();
+    });
+    document.documentElement.appendChild(dlg);
+    dlg.showModal();
     ov.focus();
     return true;
   };

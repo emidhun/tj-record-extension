@@ -2,6 +2,8 @@
 // hidden offscreen page alive while a tab is being recorded. It also collects the page events
 // relayed from the tab and, on stop, saves video + thumbnail + bundle.json as a draft.
 // Instant replay runs here too: it keeps the last few minutes of a tab in memory (see replayStart).
+// Screen recording loads this module in screen.html (role 'screen'): a desktop stream can only be
+// used by the page that picked it, so that page records and the offscreen page isn't involved.
 import { fixWebmDuration } from './lib/webm-duration.js';
 import { muxWebm } from './lib/webm-mux.js';
 import { putDraft } from './lib/db.js';
@@ -9,6 +11,7 @@ import { REPLAY_BITS_PER_SECOND, VIDEO_BITS_PER_SECOND } from './lib/config.js';
 
 const LIMITS = { console: 2000, network: 1500, actions: 1000, customLogs: 500 };
 const KIND = { console: 'console', network: 'network', action: 'actions', custom: 'customLogs' };
+const ROLE = location.pathname.endsWith('/screen.html') ? 'screen' : 'offscreen';
 let session = null;
 let replay = null;
 
@@ -19,7 +22,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (replay && sender.tab && sender.tab.id === replay.tabId) ingestReplay(msg.events);
     return undefined;
   }
-  if (msg.target !== 'offscreen') return undefined;
+  if (msg.target !== ROLE) return undefined;
   const handler = { start, stop, cancel, replayStart, replaySave, replayStop, ping: async () => ({ ok: true }) }[msg.type];
   if (!handler) return undefined;
   handler(msg).then(sendResponse, (e) => sendResponse({ ok: false, error: (e && e.message) || String(e) }));
@@ -45,7 +48,12 @@ function tabStream(streamId, size) {
 
 async function start({ streamId, draftId, tabId, meta, maxMs, size }) {
   if (session || replay) throw new Error('TJ Record is already capturing a tab.');
-  const stream = await tabStream(streamId, size);
+  return startSession(await tabStream(streamId, size), { draftId, tabId, meta, maxMs, capture: 'tab' });
+}
+
+// Records `stream` until stop(); page events from `tabId` go into the bundle.
+export async function startSession(stream, { draftId, tabId, meta, maxMs, capture }) {
+  if (session || replay) throw new Error('TJ Record is already capturing.');
   const mimeType = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find((t) => MediaRecorder.isTypeSupported(t));
   const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: VIDEO_BITS_PER_SECOND });
   const track = stream.getVideoTracks()[0];
@@ -53,6 +61,7 @@ async function start({ streamId, draftId, tabId, meta, maxMs, size }) {
     draftId,
     tabId,
     meta,
+    capture,
     stream,
     track,
     recorder,
@@ -77,7 +86,7 @@ async function start({ streamId, draftId, tabId, meta, maxMs, size }) {
   recorder.start(1000);
   await started;
   s.startedAt = Date.now();
-  // Closing or navigating away from a captured tab ends the track; save what we have.
+  // Closing the captured tab, or Chrome's "Stop sharing" for a screen, ends the track; save what we have.
   track.addEventListener('ended', () => {
     s.endedAt = Date.now();
     notifyStop('ended');
@@ -169,7 +178,7 @@ function bundleOf(startedAt, durationMs, meta, lists) {
   return { bundle, counts };
 }
 
-async function stop() {
+export async function stop() {
   const s = session;
   if (!s) throw new Error('Nothing is being recorded.');
   s.timers.forEach(clearTimeout);
@@ -187,11 +196,11 @@ async function stop() {
 
   const { bundle, counts } = bundleOf(s.startedAt, durationMs, s.meta, s);
   const video = await fixWebmDuration(new Blob(s.chunks, { type: 'video/webm' }), durationMs);
-  await putDraft({ id: s.draftId, type: 'video', createdAt: Date.now(), meta: s.meta, durationMs, counts, bundle, video, thumb: s.thumb });
+  await putDraft({ id: s.draftId, type: 'video', capture: s.capture, createdAt: Date.now(), meta: s.meta, durationMs, counts, bundle, video, thumb: s.thumb });
   return { ok: true, draftId: s.draftId, durationMs, size: video.size, counts };
 }
 
-async function cancel() {
+export async function cancel() {
   const s = session;
   session = null;
   if (!s) return { ok: true };
@@ -389,7 +398,7 @@ async function replaySave({ lengthMs, draftId, meta }) {
   let thumb = shot ? shot.blob : null;
   if (!thumb && r.lastFrame) thumb = await jpegOf(r.lastFrame).catch(() => null);
 
-  await putDraft({ id: draftId, type: 'video', replay: true, createdAt: Date.now(), meta, durationMs, counts, bundle, video, thumb });
+  await putDraft({ id: draftId, type: 'video', capture: 'replay', replay: true, createdAt: Date.now(), meta, durationMs, counts, bundle, video, thumb });
   return { ok: true, draftId, durationMs, size: video.size, counts };
 }
 
